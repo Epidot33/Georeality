@@ -204,7 +204,9 @@ navigator.geolocation.watchPosition(
 
         document.getElementById("gpsInfo").innerHTML =
             "Lat: " + lat.toFixed(6) +
-            "<br>Lon: " + lon.toFixed(6);
+            "<br>Lon: " + lon.toFixed(6) +
+			"<br>DX: " + dx.toFixed(1) +
+			"<br>DY: " + dy.toFixed(1);
 
     },
 
