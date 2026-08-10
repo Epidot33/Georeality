@@ -33,12 +33,12 @@ def run_workflow():
 
     grd_file = (
         r"C:\Users\jonas\OneDrive\georeality"
-        r"\examples\grids\test2.grd"
+        r"\examples\grids\fake2.grd"
     )
 
     output_file = (
         r"C:\Users\jonas\OneDrive\georeality"
-        r"\examples\output\EC.gltf"
+        r"\examples\output\hemma.gltf"
     )
 
     # -----------------------------------------------------------------
@@ -58,9 +58,9 @@ def run_workflow():
     # -----------------------------------------------------------------
 
     layer = Layer(
-        name="Magnetic Susceptibility",
-        layer_type="geophysics",
-        source_file="test.grd",
+        name="PFAS tot (fake)",
+        layer_type="PFAS",
+        source_file="fake2.grd",
         epsg_code=3006,
         mesh=mesh,
     )
@@ -83,7 +83,7 @@ def run_workflow():
     export_gltf(
         mesh,
         output_file,
-        source_file="test.grd",
+        source_file="fake2.grd",
     )
 
     print("")
