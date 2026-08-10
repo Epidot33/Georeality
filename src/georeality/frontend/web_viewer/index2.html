@@ -110,9 +110,11 @@ const camera = new THREE.PerspectiveCamera(
 
 camera.position.set(
     0,
-    -500,
-    300
+    0,
+    2000
 );
+
+camera.lookAt(0,0,0);
 
 const renderer = new THREE.WebGLRenderer(
     {
@@ -131,10 +133,12 @@ document
         renderer.domElement
     );
 
+/*
 const controls = new OrbitControls(
     camera,
     renderer.domElement
 );
+*/
 
 controls.enableDamping = false;
 
