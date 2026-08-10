@@ -487,8 +487,8 @@ function loadModel(modelUrl)
                 center.z + maxDimension
             );
 
-            camera.near = maxDimension / 1000;
-            camera.far = maxDimension * 1000;
+            camera.near = maxDimension / 100;
+            camera.far = maxDimension * 100;
 
             camera.updateProjectionMatrix();
 
