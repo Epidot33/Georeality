@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<button onclick="testGPS()">GPS</button>
+
+<p id="out">waiting...</p>
+
+<script>
+
+function testGPS() {
+
+    navigator.geolocation.getCurrentPosition(
+
+        function(pos){
+
+            document.getElementById("out").innerHTML =
+                pos.coords.latitude +
+                ", " +
+                pos.coords.longitude;
+
+        },
+
+        function(err){
+
+            document.getElementById("out").innerHTML =
+                "ERROR: " +
+                err.code +
+                " " +
+                err.message;
+
+        }
+
+    );
+
+}
+
+</script>
+
+</body>
+</html>
+`

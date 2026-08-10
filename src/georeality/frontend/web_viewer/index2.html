@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+
+<title>GeoReality Viewer</title>
+
+<style>
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+}
+
+#viewer {
+    width: 100%;
+    height: 100%;
+}
+
+#header {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+
+    padding: 10px;
+
+    background: rgba(255,255,255,0.9);
+
+    border-radius: 5px;
+
+    z-index: 10;
+}
+
+#dropZone {
+	margin-top: 10px;
+	
+	padding: 10px;
+	
+	border: 2px dashed 888;
+	
+	border-radius: 5px;
+	
+	background: #f0f0f0;
+	
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="header">
+
+<b>GeoReality Viewer</b><br>
+Version 0.1<br>
+Author: Jonas Bermin - WSP
+
+<div id="dropZone">
+Drop GeoReality model here
+</div>
+
+</div>
+
+<div id="viewer">
+
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.179.1/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.179.1/build/three.module.js";
+
+import { OrbitControls }
+from "https://unpkg.com/three@0.179.1/examples/jsm/controls/OrbitControls.js";
+
+import { GLTFLoader }
+from "https://unpkg.com/three@0.179.1/examples/jsm/loaders/GLTFLoader.js";
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color(0x000000);
+
+const camera = new THREE.PerspectiveCamera(
+    60,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    10000000
+);
+
+camera.position.set(
+    0,
+    -500,
+    300
+);
+
+const renderer = new THREE.WebGLRenderer(
+    {
+        antialias: true
+    }
+);
+
+renderer.setSize(
+    window.innerWidth,
+    window.innerHeight
+);
+
+document
+    .getElementById("viewer")
+    .appendChild(
+        renderer.domElement
+    );
+
+const controls = new OrbitControls(
+    camera,
+    renderer.domElement
+);
+
+controls.enableDamping = false;
+
+const ambientLight =
+    new THREE.AmbientLight(
+        0xffffff,
+        1.5
+    );
+
+scene.add(
+    ambientLight
+);
+
+const directionalLight =
+    new THREE.DirectionalLight(
+        0xffffff,
+        2
+    );
+
+directionalLight.position.set(
+    1,
+    1,
+    1
+);
+
+scene.add(
+    directionalLight
+);
+
+
+/*
+const groundwaterGeometry =
+    new THREE.PlaneGeometry(
+        2000,
+        2000
+    );
+
+const groundwaterMaterial =
+    new THREE.MeshPhongMaterial(
+        {
+            color: 0x00ffff,
+            transparent: true,
+            opacity: 1.0,
+            side: THREE.DoubleSide
+        }
+    );
+
+const groundwaterSurface =
+    new THREE.Mesh(
+        groundwaterGeometry,
+        groundwaterMaterial
+    );
+
+groundwaterSurface.rotation.x =
+    Math.PI / 2;
+
+groundwaterSurface.position.set(
+    646250,
+    6558200,
+    100
+);
+
+scene.add(
+    groundwaterSurface
+);
+
+*/
+
+
+const loader = new GLTFLoader();
+let currentModel = null;
+
+function loadModel(modelUrl)
+{
+    loader.load(
+
+        modelUrl,
+
+        function(gltf)
+        {
+            if (currentModel)
+            {
+                scene.remove(currentModel);
+            }
+
+            currentModel = gltf.scene;
+			
+			currentModel.traverse(function(child)
+			{
+				if (child.isMesh)
+				{
+					child.material.side =
+						THREE.DoubleSide;
+						
+					child.material.color.setHex(
+						0xa89b7b
+					);
+				}
+			});
+			
+            scene.add(currentModel);
+
+            const box = new THREE.Box3().setFromObject(
+                currentModel
+            );
+
+            const center = box.getCenter(
+                new THREE.Vector3()
+            );
+
+            const size = box.getSize(
+                new THREE.Vector3()
+            );
+
+            const maxDimension = Math.max(
+                size.x,
+                size.y,
+                size.z
+            );
+			
+			const groundwaterGeometry =
+				new THREE.PlaneGeometry(
+					maxDimension * 2,
+					maxDimension * 2
+				);
+
+			const groundwaterMaterial =
+				new THREE.MeshPhongMaterial(
+					{
+						color: 0x0000ff,
+						transparent: true,
+						opacity: 0.7,
+						side: THREE.DoubleSide
+					}
+				);
+
+			const groundwaterSurface =
+				new THREE.Mesh(
+					groundwaterGeometry,
+					groundwaterMaterial
+				);
+
+			groundwaterSurface.rotation.x =
+				Math.PI / 2;
+
+			groundwaterSurface.position.set(
+				center.x,
+				center.y,
+				center.z + 20
+			);
+
+			scene.add(
+				groundwaterSurface
+			);
+			
+			const flowDirection =
+				new THREE.Vector3(
+					1,
+					0,
+					0
+				);
+
+			const flowArrow =
+				new THREE.ArrowHelper(
+					flowDirection.normalize(),
+					new THREE.Vector3(
+						center.x - maxDimension * 0.4,
+						center.y,
+						center.z + 30
+					),
+					maxDimension * 0.8,
+					0x00ff00,
+					maxDimension * 0.08,
+					maxDimension * 0.04
+				);
+
+			scene.add(
+				flowArrow
+			);
+			
+			const pfasGeometry =
+				new THREE.SphereGeometry(
+					maxDimension / 6,
+					32,
+					32
+				);
+
+			const pfasMaterial =
+				new THREE.MeshPhongMaterial(
+					{
+						color: 0xff0000,
+						transparent: true,
+						opacity: 0.35,
+						depthWrite: false,
+						side: THREE.DoubleSide
+					}
+				);
+
+			const pfasPlume =
+				new THREE.Mesh(
+					pfasGeometry,
+					pfasMaterial
+				);
+
+			pfasPlume.scale.set(
+				2.5,
+				1.0,
+				0.4
+			);
+
+			pfasPlume.position.set(
+				center.x + maxDimension * 0.15,
+				center.y,
+				center.z - 15
+			);
+
+			scene.add(
+				pfasPlume
+			);
+			
+			
+			const demoGroup =
+				new THREE.Group();
+
+			const wellOffsets = [
+				[-0.35, -0.25],
+				[-0.15,  0.25],
+				[ 0.10, -0.10],
+				[ 0.30,  0.20],
+				[ 0.42, -0.30]
+			];
+
+			wellOffsets.forEach(function(offset, index)
+			{
+				const wellHeight =
+					maxDimension * 0.45;
+
+				const wellRadius =
+					maxDimension * 0.015;
+
+				const wellGeometry =
+					new THREE.CylinderGeometry(
+						wellRadius,
+						wellRadius,
+						wellHeight,
+						24
+					);
+
+				const wellMaterial =
+					new THREE.MeshPhongMaterial(
+						{
+							color: 0x111111,
+							depthTest: false
+						}
+					);
+
+				const well =
+					new THREE.Mesh(
+						wellGeometry,
+						wellMaterial
+					);
+
+				//well.rotation.x =
+				//	Math.PI / 2;
+
+				well.position.set(
+					center.x + offset[0] * maxDimension,
+					center.y + offset[1] * maxDimension,
+					center.z + wellHeight * 0.15
+				);
+
+				well.renderOrder =
+					10;
+
+				demoGroup.add(
+					well
+				);		
+				
+				});
+				
+				scene.add(demoGroup
+				);
+		
+			controls.target.copy(center);
+
+            camera.position.set(
+                center.x,
+                center.y - maxDimension * 2,
+                center.z + maxDimension
+            );
+
+            camera.near = maxDimension / 1000;
+            camera.far = maxDimension * 1000;
+
+            camera.updateProjectionMatrix();
+
+            controls.update();
+
+            console.log(
+                "GeoReality model loaded."
+            );
+        },
+
+        undefined,
+
+        function(error)
+        {
+            console.error(error);
+        }
+    );
+}
+
+loadModel(
+    "../../../../examples/output/workflow_test.gltf"
+
+
+);
+
+window.addEventListener(
+    "resize",
+    () =>
+    {
+        camera.aspect =
+            window.innerWidth /
+            window.innerHeight;
+
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(
+            window.innerWidth,
+            window.innerHeight
+        );
+    }
+);
+
+const dropZone =
+    document.getElementById(
+        "dropZone"
+    );
+
+dropZone.addEventListener(
+    "dragover",
+    function(event)
+    {
+        event.preventDefault();
+
+        dropZone.style.background =
+            "#d0ffd0";
+    }
+);
+
+dropZone.addEventListener(
+    "dragleave",
+    function()
+    {
+        dropZone.style.background =
+            "#f0f0f0";
+    }
+);
+
+dropZone.addEventListener(
+    "drop",
+    function(event)
+    {
+        event.preventDefault();
+
+        dropZone.style.background =
+            "#f0f0f0";
+
+        const file =
+            event.dataTransfer.files[0];
+
+        if (!file)
+        {
+            return;
+        }
+
+        console.log(
+            "Dropped file:",
+            file.name
+        );
+		
+		dropZone.innerHTML =
+			"Loaded:<br>" +
+			file.name;
+
+        const modelUrl =
+            URL.createObjectURL(file);
+
+        loadModel(modelUrl);
+    }
+);
+
+function animate()
+{
+    requestAnimationFrame(
+        animate
+    );
+
+    controls.update();
+
+    renderer.render(
+        scene,
+        camera
+    );
+}
+
+animate();
+
+</script>
+
+</body>
+</html>

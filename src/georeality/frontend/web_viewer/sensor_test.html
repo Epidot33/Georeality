@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GeoReality Sensor Test</title>
+
+<style>
+body {
+    background: #111;
+    color: #0f0;
+    font-family: Arial, sans-serif;
+    padding: 20px;
+}
+
+button {
+    font-size: 20px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>GeoReality Sensor Test</h1>
+
+<button onclick="enableSensors()">Enable Sensors</button>
+
+<p id="gps">GPS: waiting...</p>
+<p id="heading">Heading: waiting...</p>
+<p id="tilt">Tilt: waiting...</p>
+
+<script>
+
+function enableSensors() {
+
+	alert("Button clicked");
+    if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+    ) {
+
+        DeviceOrientationEvent.requestPermission()
+            .then(response => {
+
+                if (response === "granted") {
+
+                    window.addEventListener(
+                        "deviceorientation",
+                        handleOrientation
+                    );
+
+                }
+
+            });
+
+    } else {
+
+        window.addEventListener(
+            "deviceorientation",
+            handleOrientation
+        );
+
+    }
+
+    navigator.geolocation.watchPosition(pos => {
+
+        document.getElementById("gps").innerHTML =
+            "GPS: " +
+            pos.coords.latitude.toFixed(6) +
+            ", " +
+            pos.coords.longitude.toFixed(6);
+
+    });
+
+}
+
+function handleOrientation(event) {
+
+    let heading =
+        event.webkitCompassHeading ??
+        event.alpha;
+
+    document.getElementById("heading").innerHTML =
+        "Heading: " + Math.round(heading) + "°";
+
+    document.getElementById("tilt").innerHTML =
+        "Tilt β: " + Math.round(event.beta) +
+        " γ: " + Math.round(event.gamma);
+
+}
+
+</script>
+
+</body>
+</html>
