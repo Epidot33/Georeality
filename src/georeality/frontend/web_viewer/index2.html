@@ -52,6 +52,18 @@ html, body {
 
 <body>
 
+<div id="gpsInfo"
+     style="
+     position:absolute;
+     top:10px;
+     left:10px;
+     color:white;
+     background:black;
+     padding:10px;
+     z-index:1000;">
+GPS väntar...
+</div>
+
 <div id="header">
 
 <b>GeoReality Viewer</b><br>
@@ -152,6 +164,61 @@ scene.add(
     directionalLight
 );
 
+let homeLat = null;
+let homeLon = null;
+
+const gpsMarker = new THREE.Mesh(
+    new THREE.SphereGeometry(20, 16, 16),
+    new THREE.MeshBasicMaterial({
+        color: 0x00aaff
+    })
+);
+
+gpsMarker.position.set(
+    0,
+    0,
+    0
+);
+
+scene.add(gpsMarker);
+
+navigator.geolocation.watchPosition(
+    function(pos) {
+
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+		
+		if (homeLat === null) {
+			homeLat = lat;
+			homeLon = lon;
+		}
+		
+		const dx = (lon - homeLon) * 6000000;
+		
+		const dy = (lat - homeLat) * 10000000;
+		
+		gpsMarker.position.x = dx;
+		
+		gpsMarker.position.y = dy;
+		
+
+        document.getElementById("gpsInfo").innerHTML =
+            "Lat: " + lat.toFixed(6) +
+            "<br>Lon: " + lon.toFixed(6);
+
+    },
+
+    function(err) {
+
+        document.getElementById("gpsInfo").innerHTML =
+            "GPS-fel: " + err.message;
+
+    },
+
+    {
+        enableHighAccuracy: true
+    }
+);
 
 /*
 const groundwaterGeometry =
