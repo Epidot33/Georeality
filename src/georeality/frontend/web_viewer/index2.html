@@ -197,9 +197,9 @@ navigator.geolocation.watchPosition(
 		
 		const dy = (lat - homeLat) * 10000000;
 		
-		gpsMarker.position.x = dx;
+		gpsMarker.position.x = 1000 + dx;
 		
-		gpsMarker.position.y = dy;
+		gpsMarker.position.y = 1000 + dy;
 		
 		gpsMarker.position.z = 200;
 		
