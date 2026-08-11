@@ -483,20 +483,20 @@ function loadModel(modelUrl)
 				);
 				*/
 		
-			controls.target.copy(center);
+			/*controls.target.copy(center);*/
 
-            camera.position.set(
+            /*camera.position.set(
                 center.x,
                 center.y - maxDimension * 2,
                 center.z + maxDimension
-            );
+            );*/
 
             camera.near = maxDimension / 100;
             camera.far = maxDimension * 100;
 
             camera.updateProjectionMatrix();
 
-            controls.update();
+            /*controls.update();*/
 
             console.log(
                 "GeoReality model loaded."
@@ -599,7 +599,7 @@ function animate()
         animate
     );
 
-    controls.update();
+    /*controls.update();*/
 
     renderer.render(
         scene,
