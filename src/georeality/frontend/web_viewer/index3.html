@@ -206,7 +206,7 @@ let homeLat = null;
 
 let homeLon = null; 
 
-let markerZ = 10; 
+let markerZ = 100; 
 
 let mapViewSize = 100; 
 
@@ -214,7 +214,7 @@ let mapViewSize = 100;
 
 const gpsMarker = new THREE.Mesh( 
 
-    new THREE.SphereGeometry(2.0, 24, 24), 
+    new THREE.SphereGeometry(20, 24, 24), 
 
     new THREE.MeshBasicMaterial({ color: 0xffff00 }) 
 
@@ -458,9 +458,9 @@ function startGps() {
 
   
 
-            gpsMarker.position.x = dx; 
+            gpsMarker.position.x = modelCenterX + dx; 
 
-            gpsMarker.position.y = dy; 
+            gpsMarker.position.y = modelCenterY + dy; 
 
             gpsMarker.position.z = markerZ; 
 
@@ -476,7 +476,11 @@ function startGps() {
 
                 "<br>DY north: " + dy.toFixed(1) + " m" + 
 
-                "<br>Accuracy: " + accuracy.toFixed(1) + " m"; 
+                "<br>Accuracy: " + accuracy.toFixed(1) + " m"
+				
+				"<br>MarkerX: " gpsMarker.position.x.toFixed(1) +
+				
+				"<br>MarkerY: " gpsMarker.position.y.toFixed(1); 
 
         }, 
 
