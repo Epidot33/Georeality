@@ -1,0 +1,541 @@
+<!DOCTYPE html> 
+
+<html lang="en"> 
+
+<head> 
+
+<meta charset="utf-8"> 
+
+<title>GeoReality Top View GPS Test</title> 
+
+  
+
+<style> 
+
+html, body { 
+
+    margin: 0; 
+
+    width: 100%; 
+
+    height: 100%; 
+
+    overflow: hidden; 
+
+    font-family: Arial, sans-serif; 
+
+    background: #000000; 
+
+} 
+
+  
+
+#viewer { 
+
+    width: 100%; 
+
+    height: 100%; 
+
+} 
+
+  
+
+#gpsInfo { 
+
+    position: absolute; 
+
+    top: 10px; 
+
+    left: 10px; 
+
+    color: white; 
+
+    background: rgba(0, 0, 0, 0.85); 
+
+    padding: 10px; 
+
+    border-radius: 6px; 
+
+    z-index: 1000; 
+
+    font-size: 13px; 
+
+    line-height: 1.35; 
+
+} 
+
+  
+
+#titleBox { 
+
+    position: absolute; 
+
+    top: 10px; 
+
+    right: 10px; 
+
+    color: black; 
+
+    background: rgba(255, 255, 255, 0.9); 
+
+    padding: 10px; 
+
+    border-radius: 6px; 
+
+    z-index: 1000; 
+
+    font-size: 13px; 
+
+    text-align: right; 
+
+} 
+
+</style> 
+
+</head> 
+
+  
+
+<body> 
+
+  
+
+<div id="gpsInfo">GPS väntar...</div> 
+
+  
+
+<div id="titleBox"> 
+
+<b>GeoReality index3</b><br> 
+
+Top-down GPS test<br> 
+
+hemma.gltf 
+
+</div> 
+
+  
+
+<div id="viewer"></div> 
+
+  
+
+<script type="importmap"> 
+
+{ 
+
+  "imports": { 
+
+    "three": "https://unpkg.com/three@0.179.1/build/three.module.js" 
+
+  } 
+
+} 
+
+</script> 
+
+  
+
+<script type="module"> 
+
+import * as THREE from "https://unpkg.com/three@0.179.1/build/three.module.js"; 
+
+  
+
+import { GLTFLoader } from "https://unpkg.com/three@0.179.1/examples/jsm/loaders/GLTFLoader.js"; 
+
+  
+
+const scene = new THREE.Scene(); 
+
+scene.background = new THREE.Color(0x000000); 
+
+  
+
+const renderer = new THREE.WebGLRenderer({ antialias: true }); 
+
+renderer.setSize(window.innerWidth, window.innerHeight); 
+
+document.getElementById("viewer").appendChild(renderer.domElement); 
+
+  
+
+const aspect = window.innerWidth / window.innerHeight; 
+
+const camera = new THREE.OrthographicCamera( 
+
+    -50 * aspect, 
+
+     50 * aspect, 
+
+     50, 
+
+    -50, 
+
+     0.1, 
+
+     100000 
+
+); 
+
+  
+
+camera.position.set(0, 0, 1000); 
+
+camera.up.set(0, 1, 0); 
+
+camera.lookAt(0, 0, 0); 
+
+  
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.8); 
+
+scene.add(ambientLight); 
+
+  
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2); 
+
+directionalLight.position.set(0, 0, 1); 
+
+scene.add(directionalLight); 
+
+  
+
+let homeLat = null; 
+
+let homeLon = null; 
+
+let markerZ = 10; 
+
+let mapViewSize = 100; 
+
+  
+
+const gpsMarker = new THREE.Mesh( 
+
+    new THREE.SphereGeometry(2.0, 24, 24), 
+
+    new THREE.MeshBasicMaterial({ color: 0xffff00 }) 
+
+); 
+
+  
+
+gpsMarker.position.set(0, 0, markerZ); 
+
+scene.add(gpsMarker); 
+
+  
+
+const loader = new GLTFLoader(); 
+
+let currentModel = null; 
+
+  
+
+function setTopDownCamera(viewSize) { 
+
+    mapViewSize = viewSize; 
+
+    const a = window.innerWidth / window.innerHeight; 
+
+  
+
+    if (a >= 1) { 
+
+        camera.left = -viewSize * a / 2; 
+
+        camera.right = viewSize * a / 2; 
+
+        camera.top = viewSize / 2; 
+
+        camera.bottom = -viewSize / 2; 
+
+    } else { 
+
+        camera.left = -viewSize / 2; 
+
+        camera.right = viewSize / 2; 
+
+        camera.top = viewSize / (2 * a); 
+
+        camera.bottom = -viewSize / (2 * a); 
+
+    } 
+
+  
+
+    camera.position.set(0, 0, viewSize * 5); 
+
+    camera.near = 0.1; 
+
+    camera.far = viewSize * 20; 
+
+    camera.lookAt(0, 0, 0); 
+
+    camera.updateProjectionMatrix(); 
+
+} 
+
+  
+
+function loadModel(modelUrl) { 
+
+    loader.load( 
+
+        modelUrl, 
+
+  
+
+        function(gltf) { 
+
+            if (currentModel) { 
+
+                scene.remove(currentModel); 
+
+            } 
+
+  
+
+            currentModel = gltf.scene; 
+
+  
+
+            currentModel.traverse(function(child) { 
+
+                if (child.isMesh) { 
+
+                    child.material = new THREE.MeshBasicMaterial({ 
+
+                        color: 0xa89b7b, 
+
+                        side: THREE.DoubleSide, 
+
+                        wireframe: false 
+
+                    }); 
+
+                } 
+
+            }); 
+
+  
+
+            scene.add(currentModel); 
+
+  
+
+            const originalBox = new THREE.Box3().setFromObject(currentModel); 
+
+            const originalCenter = originalBox.getCenter(new THREE.Vector3()); 
+
+  
+
+            currentModel.position.x -= originalCenter.x; 
+
+            currentModel.position.y -= originalCenter.y; 
+
+            currentModel.position.z -= originalCenter.z; 
+
+  
+
+            const box = new THREE.Box3().setFromObject(currentModel); 
+
+            const size = box.getSize(new THREE.Vector3()); 
+
+            const maxXY = Math.max(size.x, size.y); 
+
+  
+
+            markerZ = box.max.z + Math.max(maxXY * 0.05, 2); 
+
+            gpsMarker.position.set(0, 0, markerZ); 
+
+  
+
+            const markerRadius = Math.max(maxXY * 0.035, 1.0); 
+
+            gpsMarker.geometry.dispose(); 
+
+            gpsMarker.geometry = new THREE.SphereGeometry(markerRadius, 24, 24); 
+
+  
+
+            setTopDownCamera(maxXY * 1.35); 
+
+  
+
+            document.getElementById("gpsInfo").innerHTML = 
+
+                "Modell laddad" + 
+
+                "<br>Storlek X: " + size.x.toFixed(1) + " m" + 
+
+                "<br>Storlek Y: " + size.y.toFixed(1) + " m" + 
+
+                "<br>GPS väntar..."; 
+
+  
+
+            console.log("GeoReality index3 model loaded."); 
+
+            console.log("Original center:", originalCenter); 
+
+            console.log("Centered size:", size); 
+
+        }, 
+
+  
+
+        undefined, 
+
+  
+
+        function(error) { 
+
+            document.getElementById("gpsInfo").innerHTML = 
+
+                "Modellfel: " + error.message; 
+
+            console.error(error); 
+
+        } 
+
+    ); 
+
+} 
+
+  
+
+function startGps() { 
+
+    if (!navigator.geolocation) { 
+
+        document.getElementById("gpsInfo").innerHTML = 
+
+            "GPS stöds inte av webbläsaren."; 
+
+        return; 
+
+    } 
+
+  
+
+    navigator.geolocation.watchPosition( 
+
+        function(pos) { 
+
+            const lat = pos.coords.latitude; 
+
+            const lon = pos.coords.longitude; 
+
+            const accuracy = pos.coords.accuracy; 
+
+  
+
+            if (homeLat === null) { 
+
+                homeLat = lat; 
+
+                homeLon = lon; 
+
+            } 
+
+  
+
+            const metersPerDegreeLat = 111320; 
+
+            const metersPerDegreeLon = 111320 * Math.cos(homeLat * Math.PI / 180); 
+
+  
+
+            const dx = (lon - homeLon) * metersPerDegreeLon; 
+
+            const dy = (lat - homeLat) * metersPerDegreeLat; 
+
+  
+
+            gpsMarker.position.x = dx; 
+
+            gpsMarker.position.y = dy; 
+
+            gpsMarker.position.z = markerZ; 
+
+  
+
+            document.getElementById("gpsInfo").innerHTML = 
+
+                "Lat: " + lat.toFixed(6) + 
+
+                "<br>Lon: " + lon.toFixed(6) + 
+
+                "<br>DX east: " + dx.toFixed(1) + " m" + 
+
+                "<br>DY north: " + dy.toFixed(1) + " m" + 
+
+                "<br>Accuracy: " + accuracy.toFixed(1) + " m"; 
+
+        }, 
+
+  
+
+        function(err) { 
+
+            document.getElementById("gpsInfo").innerHTML = 
+
+                "GPS-fel: " + err.message; 
+
+        }, 
+
+  
+
+        { 
+
+            enableHighAccuracy: true, 
+
+            maximumAge: 0, 
+
+            timeout: 10000 
+
+        } 
+
+    ); 
+
+} 
+
+  
+
+loadModel("../../../../examples/output/hemma.gltf"); 
+
+startGps(); 
+
+  
+
+window.addEventListener("resize", function() { 
+
+    renderer.setSize(window.innerWidth, window.innerHeight); 
+
+    setTopDownCamera(mapViewSize); 
+
+}); 
+
+  
+
+function animate() { 
+
+    requestAnimationFrame(animate); 
+
+    renderer.render(scene, camera); 
+
+} 
+
+  
+
+animate(); 
+
+</script> 
+
+</body> 
+
+</html> 
