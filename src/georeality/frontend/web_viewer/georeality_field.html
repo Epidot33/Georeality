@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>GeoReality Fält-AR</title>
+<!--
+  GeoReality Fält-AR, version 0.1
+  Author: Jonas Bermin - WSP (AI-assisted, human-reviewed)
+
+  Live camera + phone GPS + phone orientation sensors. The geological model is drawn in its real position over the camera image
+  and follows the phone when you turn or tilt it. Positioning uses the phone (a few metres); the compass error is removed with a
+  one-tap calibration against a known point.
+
+  Data: a georeality_ar_<project>.json file made by export_ar_model.py. The file is opened from the phone (Files/OneDrive) and is
+  read only inside the browser. Nothing is uploaded and the page makes no network requests of its own.
+  Requires HTTPS (camera, GPS and motion sensors are blocked on plain http). No external libraries: plain WebGL.
+-->
+<style>
+ html,body{margin:0;height:100%;background:#000;color:#fff;font-family:-apple-system,"Segoe UI",Arial,sans-serif;overflow:hidden;touch-action:none}
+ #video,#gl{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
+ #labels{position:fixed;inset:0;pointer-events:none}
+ .lab{position:absolute;transform:translate(-50%,-120%);font-size:12px;font-weight:600;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.55);white-space:nowrap}
+ #cross{position:fixed;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;pointer-events:none;opacity:.85}
+ #cross:before,#cross:after{content:"";position:absolute;background:#fff;box-shadow:0 0 2px #000}
+ #cross:before{left:16px;top:0;width:2px;height:34px}#cross:after{top:16px;left:0;height:2px;width:34px}
+ #status{position:fixed;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 4px) 10px 4px;font-size:12px;background:rgba(0,0,0,.45);line-height:1.35}
+ #status b{color:#ffd21f}
+ #bar{position:fixed;left:0;right:0;bottom:0;padding:6px 8px calc(env(safe-area-inset-bottom) + 6px);display:flex;gap:6px;flex-wrap:wrap;background:rgba(0,0,0,.45)}
+ button,select{font-size:14px;padding:8px 10px;border-radius:8px;border:1px solid #888;background:#222;color:#fff}
+ button.on{background:#2f6fb7;border-color:#2f6fb7}
+ #panel{position:fixed;right:0;bottom:56px;width:min(92vw,340px);max-height:62vh;overflow-y:auto;background:rgba(15,20,28,.92);padding:10px 12px;border-radius:12px 0 0 0;display:none;font-size:13px}
+ #panel h4{margin:10px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#9fb3cc}
+ #panel label{display:flex;align-items:center;gap:8px;margin:5px 0}
+ #panel input[type=range]{flex:1}
+ .val{min-width:58px;text-align:right;color:#ffd21f}
+ .chip{display:inline-block;width:12px;height:12px;border:1px solid #ccc;margin-right:4px;vertical-align:-1px}
+ #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0b1320;padding:24px;text-align:center}
+ #start h1{margin:0;font-size:22px}#start p{margin:0;max-width:440px;color:#c8d3e0;font-size:14px;line-height:1.4}
+ #start button{font-size:17px;padding:12px 18px}
+ #msg{position:fixed;left:50%;top:40%;transform:translateX(-50%);background:rgba(0,0,0,.75);padding:10px 14px;border-radius:10px;font-size:14px;display:none;max-width:86vw;text-align:center}
+ .warn{color:#ffb347}
+</style>
+</head>
+<body>
+<video id="video" playsinline muted autoplay></video>
+<canvas id="gl"></canvas>
+<div id="labels"></div>
+<div id="cross"></div>
+<div id="status">Ingen modell laddad</div>
+<div id="msg"></div>
+
+<div id="panel">
+ <h4>Visa</h4>
+ <label><input type="checkbox" id="o-wall" checked> Snitt framför mig</label>
+ <label><input type="checkbox" id="o-sheets"> Lagerytor under mig</label>
+ <label><input type="checkbox" id="o-bh" checked> Sonderingar/borrhål</label>
+ <label><input type="checkbox" id="o-feat" checked> Fältobservationer</label>
+ <label><input type="checkbox" id="o-grid"> Markyta som rutnät</label>
+ <div id="units"></div>
+ <h4>Snittet</h4>
+ <label>Avstånd<input type="range" id="s-dist" min="2" max="60" step="1" value="10"><span class="val" id="v-dist"></span></label>
+ <label>Bredd<input type="range" id="s-width" min="4" max="120" step="2" value="30"><span class="val" id="v-width"></span></label>
+ <label>Genomskinlighet<input type="range" id="s-alpha" min="0" max="90" step="5" value="25"><span class="val" id="v-alpha"></span></label>
+ <label>Lyft modellen<input type="range" id="s-lift" min="0" max="30" step="0.5" value="0"><span class="val" id="v-lift"></span></label>
+ <label>Lagerytor inom<input type="range" id="s-rad" min="10" max="150" step="5" value="40"><span class="val" id="v-rad"></span></label>
+ <h4>Kalibrering</h4>
+ <label>Mittkorset siktar på<select id="c-target"></select></label>
+ <button id="c-aim">Kalibrera riktning</button>
+ <label>Jag står vid<select id="c-here"></select></label>
+ <div style="display:flex;gap:6px"><button id="c-set">Sätt position</button><button id="c-gps">Följ GPS igen</button></div>
+ <label>Riktning ±<input type="range" id="s-head" min="-45" max="45" step="0.5" value="0"><span class="val" id="v-head"></span></label>
+ <label>Ögonhöjd<input type="range" id="s-eye" min="0.5" max="2.5" step="0.1" value="1.5"><span class="val" id="v-eye"></span></label>
+ <label>Kamerans synfält<input type="range" id="s-fov" min="35" max="90" step="1" value="62"><span class="val" id="v-fov"></span></label>
+ <h4>Data</h4>
+ <button id="p-load">Öppna annan modell</button>
+ <div id="info" style="margin-top:6px;color:#9fb3cc"></div>
+</div>
+
+<div id="bar">
+ <button id="b-panel">☰ Inställningar</button>
+ <button id="b-wall" class="on">Snitt</button>
+ <button id="b-sheets">Lager</button>
+ <button id="b-freeze">Frys</button>
+</div>
+
+<div id="start">
+ <h1>GeoReality Fält-AR</h1>
+ <p>Håll upp telefonen och se modellens lager i rätt läge genom kameran. Läget kommer från telefonens GPS (några meter), riktningen från kompassen. Kalibrera riktningen mot en känd punkt för bästa resultat.</p>
+ <p class="warn" id="https-warn" style="display:none">Sidan måste öppnas via https. Kamera, GPS och rörelsesensorer är annars avstängda.</p>
+ <button id="b-file">1. Välj modell (georeality_ar_*.json)</button>
+ <button id="b-go" disabled>2. Starta kamera och sensorer</button>
+ <p style="font-size:12px;color:#7f8fa3">Modellfilen läses bara i telefonen. Inget laddas upp.</p>
+ <input type="file" id="file" accept=".json,application/json" style="display:none">
+</div>
+
+<script>
+(function(){
+'use strict';
+const DEG=Math.PI/180;
+const $=id=>document.getElementById(id);
+// ------------------------------------------------------------------ SWEREF 99 TM (EPSG:3006), Gauss-Krüger, Lantmäteriets formler
+const TM=(function(){
+  const a=6378137.0,f=1/298.257222101,k0=0.9996,lam0=15*DEG,FE=500000,FN=0;
+  const e2=f*(2-f),n=f/(2-f),ar=a/(1+n)*(1+n*n/4+n**4/64);
+  const A=e2,B=(5*e2*e2-e2**3)/6,C=(104*e2**3-45*e2**4)/120,D=1237*e2**4/1260;
+  const b1=n/2-2*n*n/3+5*n**3/16+41*n**4/180,b2=13*n*n/48-3*n**3/5+557*n**4/1440,b3=61*n**3/240-103*n**4/140,b4=49561*n**4/161280;
+  function fwd(lat,lon){const p=lat*DEG,l=lon*DEG,s=Math.sin(p),c=Math.cos(p);
+    const ps=p-s*c*(A+B*s*s+C*s**4+D*s**6),dl=l-lam0;
+    const xi=Math.atan(Math.tan(ps)/Math.cos(dl)),eta=Math.atanh(Math.cos(ps)*Math.sin(dl));
+    const N=k0*ar*(xi+b1*Math.sin(2*xi)*Math.cosh(2*eta)+b2*Math.sin(4*xi)*Math.cosh(4*eta)+b3*Math.sin(6*xi)*Math.cosh(6*eta)+b4*Math.sin(8*xi)*Math.cosh(8*eta))+FN;
+    const E=k0*ar*(eta+b1*Math.cos(2*xi)*Math.sinh(2*eta)+b2*Math.cos(4*xi)*Math.sinh(4*eta)+b3*Math.cos(6*xi)*Math.sinh(6*eta)+b4*Math.cos(8*xi)*Math.sinh(8*eta))+FE;
+    return [E,N];}
+  function convergence(lat,lon){return Math.atan(Math.tan((lon*DEG)-lam0)*Math.sin(lat*DEG))/DEG;} // grid north vs true north (deg)
+  return {fwd,convergence};})();
+// ------------------------------------------------------------------ 4x4 matrices (column-major)
+const M={
+ id(){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);},
+ mul(a,b){const o=new Float32Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s;}return o;},
+ rx(t){const c=Math.cos(t),s=Math.sin(t);return new Float32Array([1,0,0,0,0,c,s,0,0,-s,c,0,0,0,0,1]);},
+ ry(t){const c=Math.cos(t),s=Math.sin(t);return new Float32Array([c,0,-s,0,0,1,0,0,s,0,c,0,0,0,0,1]);},
+ rz(t){const c=Math.cos(t),s=Math.sin(t);return new Float32Array([c,s,0,0,-s,c,0,0,0,0,1,0,0,0,0,1]);},
+ tr(x,y,z){const m=M.id();m[12]=x;m[13]=y;m[14]=z;return m;},
+ persp(fovy,asp,n,f){const t=1/Math.tan(fovy/2);return new Float32Array([t/asp,0,0,0,0,t,0,0,0,0,(f+n)/(n-f),-1,0,0,2*f*n/(n-f),0]);},
+ invRigid(m){const o=M.id();for(let i=0;i<3;i++)for(let j=0;j<3;j++)o[i*4+j]=m[j*4+i];
+   for(let i=0;i<3;i++)o[12+i]=-(o[i]*m[12]+o[4+i]*m[13]+o[8+i]*m[14]);return o;},
+ apply(m,v){const x=v[0],y=v[1],z=v[2];return [m[0]*x+m[4]*y+m[8]*z+m[12],m[1]*x+m[5]*y+m[9]*z+m[13],m[2]*x+m[6]*y+m[10]*z+m[14],m[3]*x+m[7]*y+m[11]*z+m[15]];}
+};
+// ------------------------------------------------------------------ state
+const S={data:null,E0:0,N0:0,gx:null,gy:null,
+  pos:null,posAcc:null,manualPos:null,gpsFix:0,
+  ori:{a:0,b:90,g:0},have:{ori:false,gps:false,cam:false},compass:null,headOffset:null,userHead:0,
+  eye:1.5,fov:62,dist:10,width:30,alpha:0.25,lift:0,rad:40,frozen:false,
+  show:{wall:true,sheets:false,bh:true,feat:true,grid:false},unitOn:[],sim:false,dirty:true};
+window.GR=S;  // for testing
+// ------------------------------------------------------------------ helpers on the model grid
+function hexRGB(h){return [parseInt(h.slice(1,3),16)/255,parseInt(h.slice(3,5),16)/255,parseInt(h.slice(5,7),16)/255];}
+function surf(k){return S.data.surfaces[k].z;}   // k=0 ground ... last=bedrock
+function sample(z,x,y){const g=S.data.grid,fx=(x-g.x0)/g.dx,fy=(y-g.y0)/g.dy;
+  if(fx<0||fy<0||fx>g.nx-1||fy>g.ny-1)return null;
+  const i=Math.min(g.nx-2,Math.floor(fx)),j=Math.min(g.ny-2,Math.floor(fy)),tx=fx-i,ty=fy-j;
+  const v=(ii,jj)=>z[jj*g.nx+ii];const a=v(i,j),b=v(i+1,j),c=v(i,j+1),d=v(i+1,j+1);
+  if(a===null||b===null||c===null||d===null)return null;
+  return (1-tx)*(1-ty)*a+tx*(1-ty)*b+(1-tx)*ty*c+tx*ty*d;}
+function groundAt(x,y){return S.data?sample(surf(0),x,y):null;}
+// ------------------------------------------------------------------ WebGL
+const cv=$('gl');const gl=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false,antialias:true,preserveDrawingBuffer:true});
+const VS='attribute vec3 p;attribute vec4 c;uniform mat4 mvp;varying vec4 vc;void main(){gl_Position=mvp*vec4(p,1.0);vc=c;}';
+const FS='precision mediump float;varying vec4 vc;void main(){gl_FragColor=vc;}';
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o;}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+const aP=gl.getAttribLocation(prog,'p'),aC=gl.getAttribLocation(prog,'c'),uM=gl.getUniformLocation(prog,'mvp');
+gl.enableVertexAttribArray(aP);gl.enableVertexAttribArray(aC);
+gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);
+function Buf(){this.p=gl.createBuffer();this.c=gl.createBuffer();this.n=0;this.mode=gl.TRIANGLES;}
+Buf.prototype.set=function(P,C,mode){gl.bindBuffer(gl.ARRAY_BUFFER,this.p);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(P),gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,this.c);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(C),gl.DYNAMIC_DRAW);this.n=P.length/3;this.mode=mode;};
+Buf.prototype.draw=function(){if(!this.n)return;gl.bindBuffer(gl.ARRAY_BUFFER,this.p);gl.vertexAttribPointer(aP,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,this.c);gl.vertexAttribPointer(aC,4,gl.FLOAT,false,0,0);gl.drawArrays(this.mode,0,this.n);};
+const B={wall:new Buf(),wallL:new Buf(),sheets:new Buf(),bh:new Buf(),feat:new Buf(),grid:new Buf()};
+// ------------------------------------------------------------------ geometry builders (local coords: x=E-E0, y=N-N0, z=height)
+function quad(P,C,a,b,c,d,col){P.push(...a,...b,...c,...a,...c,...d);for(let i=0;i<6;i++)C.push(...col);}
+function unitColor(k,alpha){const c=hexRGB(S.data.units[k].color);return [c[0],c[1],c[2],alpha];}
+function buildWall(cam,fwd){
+  const P=[],C=[],LP=[],LC=[];if(!S.show.wall){B.wall.set(P,C,gl.TRIANGLES);B.wallL.set(LP,LC,gl.LINES);return;}
+  const h=Math.hypot(fwd[0],fwd[1])||1,fx=fwd[0]/h,fy=fwd[1]/h,rx=fy,ry=-fx;
+  const cx=cam[0]+fx*S.dist,cy=cam[1]+fy*S.dist,n=Math.max(8,Math.round(S.width/1.0)),nu=S.data.units.length,a=1-S.alpha,L=S.lift;
+  const cols=[];for(let i=0;i<=n;i++){const t=(i/n-0.5)*S.width,x=cx+rx*t,y=cy+ry*t;const zs=[];
+    for(let k=0;k<=nu;k++){const v=sample(surf(k),x,y);zs.push(v===null?null:v+L);}cols.push({x,y,zs});}
+  for(let i=0;i<n;i++){const A=cols[i],Bc=cols[i+1];
+    for(let k=0;k<nu;k++){if(!S.unitOn[k])continue;const t1=A.zs[k],b1=A.zs[k+1],t2=Bc.zs[k],b2=Bc.zs[k+1];
+      if(t1===null||b1===null||t2===null||b2===null)continue;if(t1-b1<0.01&&t2-b2<0.01)continue;
+      quad(P,C,[A.x,A.y,t1],[Bc.x,Bc.y,t2],[Bc.x,Bc.y,b2],[A.x,A.y,b1],unitColor(k,a));}
+    for(let k=0;k<=nu;k++){const z1=A.zs[k],z2=Bc.zs[k];if(z1===null||z2===null)continue;
+      LP.push(A.x,A.y,z1,Bc.x,Bc.y,z2);const w=k===0?[1,1,1,0.95]:[0.1,0.1,0.1,0.8];LC.push(...w,...w);}}
+  // bedrock band 1 m under last surface
+  for(let i=0;i<n;i++){const A=cols[i],Bc=cols[i+1],z1=A.zs[nu],z2=Bc.zs[nu];if(z1===null||z2===null)continue;
+    quad(P,C,[A.x,A.y,z1],[Bc.x,Bc.y,z2],[Bc.x,Bc.y,z2-1.5],[A.x,A.y,z1-1.5],[0.69,0.23,0.18,a]);}
+  B.wall.set(P,C,gl.TRIANGLES);B.wallL.set(LP,LC,gl.LINES);}
+function buildSheets(cam){
+  const P=[],C=[];const g=S.data.grid,nu=S.data.units.length,R=S.rad,L=S.lift,a=Math.max(0.15,(1-S.alpha)*0.55);
+  if(S.show.sheets){const i0=Math.max(0,Math.floor((cam[0]-R-g.x0)/g.dx)),i1=Math.min(g.nx-2,Math.ceil((cam[0]+R-g.x0)/g.dx));
+    const j0=Math.max(0,Math.floor((cam[1]-R-g.y0)/g.dy)),j1=Math.min(g.ny-2,Math.ceil((cam[1]+R-g.y0)/g.dy));
+    for(let k=1;k<=nu;k++){const z=surf(k),uk=k-1;if(!S.unitOn[uk])continue;const col=unitColor(uk,a);
+      for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){const x=g.x0+i*g.dx,y=g.y0+j*g.dy;if(Math.hypot(x+g.dx/2-cam[0],y+g.dy/2-cam[1])>R)continue;
+        const v=(ii,jj)=>z[jj*g.nx+ii];const q=[v(i,j),v(i+1,j),v(i+1,j+1),v(i,j+1)];if(q.some(t=>t===null))continue;
+        quad(P,C,[x,y,q[0]+L],[x+g.dx,y,q[1]+L],[x+g.dx,y+g.dy,q[2]+L],[x,y+g.dy,q[3]+L],col);}}}
+  B.sheets.set(P,C,gl.TRIANGLES);
+  const GP=[],GC=[];if(S.show.grid){const z=surf(0),st=Math.max(1,Math.round(5/g.dx));
+    const i0=Math.max(0,Math.floor((cam[0]-R-g.x0)/g.dx)),i1=Math.min(g.nx-1,Math.ceil((cam[0]+R-g.x0)/g.dx));
+    const j0=Math.max(0,Math.floor((cam[1]-R-g.y0)/g.dy)),j1=Math.min(g.ny-1,Math.ceil((cam[1]+R-g.y0)/g.dy));
+    for(let j=j0;j<=j1;j+=st)for(let i=i0;i<i1;i++){const a1=z[j*g.nx+i],a2=z[j*g.nx+i+1];if(a1===null||a2===null)continue;GP.push(g.x0+i*g.dx,g.y0+j*g.dy,a1+0.05,g.x0+(i+1)*g.dx,g.y0+j*g.dy,a2+0.05);GC.push(1,1,1,0.5,1,1,1,0.5);}
+    for(let i=i0;i<=i1;i+=st)for(let j=j0;j<j1;j++){const a1=z[j*g.nx+i],a2=z[(j+1)*g.nx+i];if(a1===null||a2===null)continue;GP.push(g.x0+i*g.dx,g.y0+j*g.dy,a1+0.05,g.x0+i*g.dx,g.y0+(j+1)*g.dy,a2+0.05);GC.push(1,1,1,0.5,1,1,1,0.5);}}
+  B.grid.set(GP,GC,gl.LINES);}
+function prism(P,C,x,y,zt,zb,w,col){const h=w/2,a=[x-h,y-h],b=[x+h,y-h],c=[x+h,y+h],d=[x-h,y+h];
+  for(const [p,q] of [[a,b],[b,c],[c,d],[d,a]])quad(P,C,[p[0],p[1],zt],[q[0],q[1],zt],[q[0],q[1],zb],[p[0],p[1],zb],col);}
+function buildStatic(){
+  const P=[],C=[],L=S.lift;
+  if(S.show.bh)for(const h of S.data.boreholes){const g=groundAt(h.x,h.y);const gz=(g===null?h.gz:g);
+    for(const iv of h.iv){const col=hexRGB(iv[3]||'#3355ff');prism(P,C,h.x,h.y,gz-iv[0]+L,gz-iv[1]+L,0.35,[col[0],col[1],col[2],0.95]);}
+    prism(P,C,h.x,h.y,gz+1.2,gz,0.12,[0.05,0.15,0.55,0.95]);}
+  B.bh.set(P,C,gl.TRIANGLES);
+  const FP=[],FC=[];
+  if(S.show.feat){for(const f of S.data.features){const g=groundAt(f.x,f.y);if(g===null)continue;const c=hexRGB(f.color||'#ff00ff');prism(FP,FC,f.x,f.y,g+1.6,g,0.25,[c[0],c[1],c[2],0.95]);}
+    for(const pg of S.data.polygons){const c=hexRGB(pg.color||'#ff00ff');const r=pg.ring;for(let i=0;i<r.length-1;i++){
+      const n=Math.max(1,Math.round(Math.hypot(r[i+1][0]-r[i][0],r[i+1][1]-r[i][1])/2));
+      for(let s=0;s<n;s++){const x1=r[i][0]+(r[i+1][0]-r[i][0])*s/n,y1=r[i][1]+(r[i+1][1]-r[i][1])*s/n,x2=r[i][0]+(r[i+1][0]-r[i][0])*(s+1)/n,y2=r[i][1]+(r[i+1][1]-r[i][1])*(s+1)/n;
+        const g1=groundAt(x1,y1),g2=groundAt(x2,y2);if(g1===null||g2===null)continue;
+        const ux=(y2-y1),uy=-(x2-x1),ul=Math.hypot(ux,uy)||1,w=0.25;
+        quad(FP,FC,[x1,y1,g1+0.15],[x2,y2,g2+0.15],[x2+ux/ul*w,y2+uy/ul*w,g2+0.15],[x1+ux/ul*w,y1+uy/ul*w,g1+0.15],[c[0],c[1],c[2],0.9]);}}}}
+  B.feat.set(FP,FC,gl.TRIANGLES);}
+// ------------------------------------------------------------------ camera pose
+function screenAngle(){const o=(screen.orientation&&typeof screen.orientation.angle==='number')?screen.orientation.angle:(window.orientation||0);return o*DEG;}
+function relRot(){const o=S.ori;return M.mul(M.mul(M.rz(o.a*DEG),M.rx(o.b*DEG)),M.ry(o.g*DEG));}
+function fwdHeading(R){const f=M.apply(R,[0,0,-1]);return Math.atan2(f[0],f[1])/DEG;}  // clockwise from grid north
+function camPos(){const p=S.manualPos||S.pos;if(!p)return null;const g=groundAt(p[0],p[1]);return [p[0],p[1],(g===null?0:g)+S.eye];}
+function pose(){const R0=M.mul(relRot(),M.rz(-screenAngle()));const off=(S.headOffset||0)+S.userHead;
+  const R=M.mul(M.rz(off*DEG),R0);const c=camPos();if(!c)return null;const W=M.mul(M.tr(c[0],c[1],c[2]),R);return {W,R,c};}
+function projection(){const w=cv.width,h=cv.height;return M.persp(S.fov*DEG,w/h,0.3,3000);}
+function project(pt){const p=pose();if(!p)return null;const v=M.invRigid(p.W),P=projection(),q=M.apply(M.mul(P,v),pt);
+  if(q[3]<=0.01)return null;const x=q[0]/q[3],y=q[1]/q[3];if(Math.abs(x)>1.3||Math.abs(y)>1.3)return null;
+  return [(x+1)/2*cv.clientWidth,(1-y)/2*cv.clientHeight];}
+window.GRproject=(E,N,z)=>project([E-S.E0,N-S.N0,z]);
+// ------------------------------------------------------------------ frame
+let lastBuild={x:1e9,y:1e9,h:1e9,t:0};
+function frame(){requestAnimationFrame(frame);
+  const dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(cv.clientWidth*dpr),h=Math.round(cv.clientHeight*dpr);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
+  gl.viewport(0,0,cv.width,cv.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  if(!S.data){return;}const p=pose();if(!p){status();return;}
+  const fwd=M.apply(p.R,[0,0,-1]),hd=Math.atan2(fwd[0],fwd[1])/DEG,now=performance.now();
+  if(!S.frozen&&(S.dirty||Math.abs(((hd-lastBuild.h+540)%360)-180)>2||Math.hypot(p.c[0]-lastBuild.x,p.c[1]-lastBuild.y)>0.7||now-lastBuild.t>1500)){
+    buildWall(p.c,fwd);lastBuild={x:p.c[0],y:p.c[1],h:hd,t:now};}
+  if(S.dirty){buildSheets(p.c);buildStatic();S.dirty=false;}
+  else if(Math.hypot(p.c[0]-(S._sx||1e9),p.c[1]-(S._sy||1e9))>5){buildSheets(p.c);S._sx=p.c[0];S._sy=p.c[1];}
+  const mvp=M.mul(projection(),M.invRigid(p.W));gl.uniformMatrix4fv(uM,false,mvp);
+  gl.depthMask(true);B.bh.draw();B.feat.draw();B.wallL.draw();B.grid.draw();
+  gl.depthMask(false);B.sheets.draw();B.wall.draw();gl.depthMask(true);
+  labels();status();}
+function labels(){const box=$('labels');let html='';if(!S.data){box.innerHTML='';return;}
+  if(S.show.bh)for(const h of S.data.boreholes){const g=groundAt(h.x,h.y);const s=project([h.x,h.y,(g===null?h.gz:g)+1.4]);if(s)html+=`<div class="lab" style="left:${s[0]}px;top:${s[1]}px;color:#9fd0ff">${h.id}</div>`;}
+  if(S.show.feat)for(const f of S.data.features){const g=groundAt(f.x,f.y);if(g===null)continue;const s=project([f.x,f.y,g+1.8]);if(s)html+=`<div class="lab" style="left:${s[0]}px;top:${s[1]}px;color:${f.color}">${f.id}</div>`;}
+  box.innerHTML=html;}
+function status(){const p=S.manualPos?'manuell':(S.pos?`GPS ±${S.posAcc?S.posAcc.toFixed(0):'?'} m`:'väntar på GPS');
+  const R=M.mul(M.rz(((S.headOffset||0)+S.userHead)*DEG),M.mul(relRot(),M.rz(-screenAngle())));const hd=(fwdHeading(R)+360)%360;
+  const c=camPos();const inside=c&&groundAt(c[0],c[1])!==null;
+  $('status').innerHTML=`<b>${S.data?S.data.project:''}</b> &nbsp; Läge: ${p}${c?` &nbsp; E ${(c[0]+S.E0).toFixed(0)} N ${(c[1]+S.N0).toFixed(0)}`:''} &nbsp; Riktning ${hd.toFixed(0)}°`+
+   (S.headOffset===null?' <span class="warn">(okalibrerad)</span>':'')+(c&&!inside?' <span class="warn">Du står utanför modellen</span>':'')+(S.frozen?' <span class="warn">FRYST</span>':'')+(S.have.ori?'':' <span class="warn">inga rörelsesensorer</span>');}
+// ------------------------------------------------------------------ sensors
+function onOri(e){if(e.alpha===null&&e.beta===null)return;S.have.ori=true;
+  if(!S.frozen){S.ori={a:e.alpha||0,b:e.beta||0,g:e.gamma||0};}
+  if(typeof e.webkitCompassHeading==='number'&&!isNaN(e.webkitCompassHeading)){S.compass=e.webkitCompassHeading;
+    if(S.headOffset===null&&S.pos&&S.ll){ // first estimate: compass (magnetic, ±some deg) minus grid convergence; refined by calibration
+      const R0=M.mul(relRot(),M.rz(-screenAngle()));const rel=fwdHeading(R0);const conv=TM.convergence(S.ll[0],S.ll[1]);
+      S.headOffset=rel-(S.compass-conv);S.dirty=true;}}}
+function onPos(p){const c=p.coords;S.ll=[c.latitude,c.longitude];const [E,N]=TM.fwd(c.latitude,c.longitude);const x=E-S.E0,y=N-S.N0;
+  S.have.gps=true;S.gpsFix++;S.posAcc=c.accuracy;
+  if(!S.pos)S.pos=[x,y];else{const w=Math.min(0.6,Math.max(0.1,4/Math.max(4,c.accuracy||10)));S.pos=[S.pos[0]+(x-S.pos[0])*w,S.pos[1]+(y-S.pos[1])*w];}}
+async function startSensors(){
+  try{if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){const r=await DeviceOrientationEvent.requestPermission();if(r!=='granted')msg('Rörelsesensorer nekades. Tillåt dem i Safari och ladda om.');}}catch(e){}
+  window.addEventListener('deviceorientation',onOri,true);
+  if(navigator.geolocation)navigator.geolocation.watchPosition(onPos,e=>msg('GPS: '+e.message),{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
+  try{const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    $('video').srcObject=st;S.have.cam=true;}catch(e){msg('Kameran kunde inte startas: '+e.message);}}
+// ------------------------------------------------------------------ data
+function loadData(d){
+  if(!d||!d.grid||!d.surfaces||!d.units)throw new Error('filen är inte en GeoReality AR-modell');
+  S.data=d;S.E0=d.origin[0];S.N0=d.origin[1];S.unitOn=d.units.map(()=>true);
+  for(const s of d.surfaces)s.z=s.z.map(v=>v===null?null:v);
+  const ul=$('units');ul.innerHTML='<h4>Lager</h4>'+d.units.map((u,k)=>`<label><input type="checkbox" data-k="${k}" checked><span class="chip" style="background:${u.color}"></span>${u.name}</label>`).join('');
+  ul.querySelectorAll('input').forEach(i=>i.onchange=e=>{S.unitOn[+e.target.dataset.k]=e.target.checked;S.dirty=true;lastBuild.t=0;});
+  const opts=[].concat(d.boreholes.map(h=>['bh:'+h.id,'Sondering '+h.id]),d.features.map(f=>['f:'+f.id,f.id+' ('+f.type+')']));
+  $('c-target').innerHTML=opts.map(o=>`<option value="${o[0]}">${o[1]}</option>`).join('');$('c-here').innerHTML=$('c-target').innerHTML;
+  $('info').textContent=`${d.project}: ${d.units.length} lager, ${d.boreholes.length} sonderingar, ${d.features.length} observationer, rutnät ${d.grid.dx} m. ${d.note||''}`;
+  S.dirty=true;lastBuild.t=0;}
+function targetXY(v){const [t,id]=[v.split(':')[0],v.slice(v.indexOf(':')+1)];
+  const o=t==='bh'?S.data.boreholes.find(h=>h.id===id):S.data.features.find(f=>f.id===id);return o?[o.x,o.y]:null;}
+function readFile(f){const r=new FileReader();r.onload=()=>{try{loadData(JSON.parse(r.result));$('b-go').disabled=false;$('b-file').textContent='✓ '+f.name;msg('Modell laddad: '+S.data.project);}catch(e){msg('Kunde inte läsa modellen: '+e.message);}};r.readAsText(f);}
+// ------------------------------------------------------------------ UI
+function msg(t){const m=$('msg');m.textContent=t;m.style.display='block';clearTimeout(msg._t);msg._t=setTimeout(()=>m.style.display='none',3500);}
+if(location.protocol!=='https:'&&location.hostname!=='localhost'&&location.hostname!=='127.0.0.1')$('https-warn').style.display='block';
+$('b-file').onclick=()=>$('file').click();$('p-load').onclick=()=>$('file').click();$('file').onchange=e=>{if(e.target.files[0])readFile(e.target.files[0]);};
+$('b-go').onclick=async()=>{$('start').style.display='none';await startSensors();};
+$('b-panel').onclick=()=>{const p=$('panel');p.style.display=p.style.display==='block'?'none':'block';};
+function tog(btn,key,box){$(btn).onclick=()=>{S.show[key]=!S.show[key];$(btn).classList.toggle('on',S.show[key]);if(box)$(box).checked=S.show[key];S.dirty=true;lastBuild.t=0;};}
+tog('b-wall','wall','o-wall');tog('b-sheets','sheets','o-sheets');
+$('b-freeze').onclick=()=>{S.frozen=!S.frozen;$('b-freeze').classList.toggle('on',S.frozen);};
+for(const [id,key,btn] of [['o-wall','wall','b-wall'],['o-sheets','sheets','b-sheets'],['o-bh','bh'],['o-feat','feat'],['o-grid','grid']])
+  $(id).onchange=e=>{S.show[key]=e.target.checked;if(btn)$(btn).classList.toggle('on',S.show[key]);S.dirty=true;lastBuild.t=0;};
+const sliders=[['s-dist','dist',v=>v+' m'],['s-width','width',v=>v+' m'],['s-alpha','alpha',v=>Math.round(v*100)+' %',v=>v/100],['s-lift','lift',v=>v+' m'],
+  ['s-rad','rad',v=>v+' m'],['s-head','userHead',v=>(v>0?'+':'')+v+'°'],['s-eye','eye',v=>v+' m'],['s-fov','fov',v=>v+'°']];
+for(const [id,key,fmt,conv] of sliders){const el=$(id),vv=$('v-'+id.slice(2));const upd=()=>{const v=conv?conv(+el.value):+el.value;S[key]=v;vv.textContent=fmt(v);S.dirty=true;lastBuild.t=0;};el.oninput=upd;upd();}
+$('c-aim').onclick=()=>{const t=targetXY($('c-target').value),c=camPos();if(!t||!c){msg('Välj en punkt och vänta på position');return;}
+  const want=Math.atan2(t[0]-c[0],t[1]-c[1])/DEG;const R0=M.mul(relRot(),M.rz(-screenAngle()));S.headOffset=fwdHeading(R0)-want;S.userHead=0;$('s-head').value=0;$('v-head').textContent='0°';
+  S.dirty=true;lastBuild.t=0;msg('Riktningen kalibrerad mot '+$('c-target').selectedOptions[0].text);};
+$('c-set').onclick=()=>{const t=targetXY($('c-here').value);if(!t)return;S.manualPos=[t[0],t[1]];S.dirty=true;lastBuild.t=0;msg('Positionen satt till '+$('c-here').selectedOptions[0].text+'. GPS används inte förrän du trycker "Följ GPS igen".');};
+$('c-gps').onclick=()=>{S.manualPos=null;S.dirty=true;lastBuild.t=0;msg('Följer GPS');};
+// desk simulation: ?sim=1 places you at the model centre and lets you drag to look around
+if(/[?&]sim=1/.test(location.search)){S.sim=true;let drag=null;
+  window.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY,S.ori.a,S.ori.b];});window.addEventListener('pointerup',()=>drag=null);
+  window.addEventListener('pointermove',e=>{if(!drag)return;S.ori.a=drag[2]+(e.clientX-drag[0])*0.25;S.ori.b=Math.max(0,Math.min(180,drag[3]+(e.clientY-drag[1])*0.25));});}
+window.GRload=d=>{loadData(d);$('b-go').disabled=false;};
+window.GRstartSim=()=>{$('start').style.display='none';if(S.data&&!S.pos){S.pos=[0,0];}S.headOffset=S.headOffset===null?0:S.headOffset;};
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
